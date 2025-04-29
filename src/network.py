@@ -12,7 +12,7 @@ from torchvision.models.alexnet import AlexNet
 import torch
 
 # Custom packages
-from src.metric import MyAccuracy
+from src.metric import MyAccuracy, MyF1Score
 import src.config as cfg
 from src.util import show_setting
 
@@ -20,10 +20,34 @@ from src.util import show_setting
 # [TODO: Optional] Rewrite this class if you want
 class MyNetwork(AlexNet):
     def __init__(self):
-        super().__init__()
+        super().__init__(num_classes=200)
 
         # [TODO] Modify feature extractor part in AlexNet
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
 
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(inplace=True),
+
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # [TODO: Optional] Modify this as well if you want
@@ -32,6 +56,21 @@ class MyNetwork(AlexNet):
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
+
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self, smoothing=0.1):
+        super(LabelSmoothingCrossEntropy, self).__init__()
+        self.smoothing = smoothing
+
+    def forward(self, pred, target):
+        num_classes = pred.size(1)
+        log_preds = torch.log_softmax(pred, dim=1)
+        with torch.no_grad():
+            true_dist = torch.zeros_like(log_preds)
+            true_dist.fill_(self.smoothing / (num_classes - 1))
+            true_dist.scatter_(1, target.data.unsqueeze(1), 1.0 - self.smoothing)
+        return torch.mean(torch.sum(-true_dist * log_preds, dim=1))
 
 
 class SimpleClassifier(LightningModule):
@@ -52,10 +91,12 @@ class SimpleClassifier(LightningModule):
             self.model = models.get_model(model_name, num_classes=num_classes)
 
         # Loss function
-        self.loss_fn = nn.CrossEntropyLoss()
+        # self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = LabelSmoothingCrossEntropy(smoothing=0.1)
 
         # Metric
-        self.accuracy = MyAccuracy()
+        # self.accuracy = MyAccuracy()
+        self.accuracy = MyF1Score()
 
         # Hyperparameters
         self.save_hyperparameters()
